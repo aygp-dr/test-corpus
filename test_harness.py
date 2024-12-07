@@ -123,30 +123,69 @@ class FormatTester:
         return output
 
     def _get_ollama_response(self, model: str, prompt: str) -> Tuple[str, float]:
-        """Get response from Ollama model."""
+        """Get response from Ollama model using direct curl API calls."""
         start_time = time.time()
+        
+        # Prepare a focused code review prompt
+        system_prompt = {
+            "role": "system",
+            "content": """You are a code review assistant specialized in finding bugs and suggesting fixes.
+For each file:
+1. Identify specific bugs and issues
+2. Provide line numbers for each issue
+3. Suggest concrete fixes
+4. Rate severity of each issue (high/medium/low)
+Format your response as:
+[File: filename]
+- Bug: description (line X) [severity]
+  Fix: specific solution
+Ensure all suggestions maintain the original code's intent."""
+        }
         
         data = {
             "model": model,
-            "messages": [{
-                "role": "system",
-                "content": ("You are a code review assistant. Analyze the following code "
-                           "for bugs and suggest fixes. Provide specific line numbers "
-                           "and explanations for each issue found.")
-            }, {
-                "role": "user",
-                "content": prompt
-            }]
+            "messages": [
+                system_prompt,
+                {
+                    "role": "user",
+                    "content": f"Review this code for bugs and suggest fixes:\n\n{prompt}"
+                }
+            ],
+            "stream": False,
+            "options": {
+                "temperature": 0.3,  # Lower temperature for more focused analysis
+                "top_p": 0.9,        # Maintain some creativity while being precise
+                "max_tokens": 2048   # Allow for detailed analysis
+            }
         }
         
-        response = subprocess.run(
-            ['curl', '-X', 'POST', 'http://localhost:11434/api/chat',
-             '-d', json.dumps(data)],
-            capture_output=True, text=True
-        )
+        # Use heredoc to handle JSON properly
+        curl_cmd = f"""curl -s -X POST http://localhost:11434/api/chat -d '{json.dumps(data)}'"""
         
-        execution_time = time.time() - start_time
-        return response.stdout, execution_time
+        try:
+            response = subprocess.run(
+                curl_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30  # Add timeout to prevent hanging
+            )
+            
+            if response.returncode != 0:
+                print(f"Error calling Ollama API: {response.stderr}")
+                return f"Error: API call failed - {response.stderr}", time.time() - start_time
+            
+            try:
+                result = json.loads(response.stdout)
+                return result.get('response', 'No response in API result'), time.time() - start_time
+            except json.JSONDecodeError:
+                print(f"Error parsing API response: {response.stdout}")
+                return f"Error: Invalid JSON response - {response.stdout[:100]}...", time.time() - start_time
+                
+        except subprocess.TimeoutExpired:
+            return "Error: API call timed out", time.time() - start_time
+        except Exception as e:
+            return f"Error: {str(e)}", time.time() - start_time
 
     def _evaluate_response(self, category: str, response: str) -> Dict[str, bool]:
         """Evaluate if response correctly identifies and fixes bugs."""
