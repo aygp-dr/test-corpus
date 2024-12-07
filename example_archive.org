@@ -1,0 +1,16 @@
+#+TITLE: Code Review Archive Example
+#+PROPERTY: header-args :tangle yes :mkdirp yes
+
+* Overview
+This is an example of packaging repository code in Org archive format for LLM code review.
+
+* test.py
+#+BEGIN_SRC python :tangle test.py
+def example():
+    print("This is a test function")
+#+END_SRC
+
+* Instructions
+To extract files:
+1. Load this file in Emacs
+2. Run org-babel-tangle (C-c C-v t)
